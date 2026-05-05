@@ -1,0 +1,53 @@
+// cmd/api-server/main.go
+package main
+
+import (
+	"database/sql"
+	"log"
+
+	"NetCentricLab-MangaHub/internal/auth"
+	"NetCentricLab-MangaHub/internal/manga"
+	"NetCentricLab-MangaHub/pkg/database"
+
+	"github.com/gin-gonic/gin"
+)
+
+type APIServer struct {
+	Router    *gin.Engine
+	Database  *sql.DB
+	JWTSecret string
+}
+
+func main() {
+	log.Println("Initializing Database Connection...")
+	database.InitDB("data.db")
+
+	server := &APIServer{
+		Router:    gin.Default(),
+		Database:  database.DB,
+		JWTSecret: "super-secret-manga-key-for-academic-purposes-only",
+	}
+
+	// Public Routes
+	authGroup := server.Router.Group("/auth")
+	{
+		authGroup.POST("/register", auth.Register(server.Database))
+		authGroup.POST("/login", auth.Login(server.Database, server.JWTSecret))
+	}
+
+	// Manga Discovery Routes (Public)
+	server.Router.GET("/manga", manga.SearchManga(server.Database))
+	server.Router.GET("/manga/:id", manga.GetManga(server.Database))
+
+	// Protected User Routes (Requires JWT)
+	protected := server.Router.Group("/users")
+	protected.Use(auth.AuthMiddleware(server.JWTSecret))
+	{
+		protected.POST("/library", manga.AddToLibrary(server.Database))
+	}
+
+	log.Println("Starting HTTP API Server on port 8080...")
+	if err := server.Router.Run(":8080"); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
+}
