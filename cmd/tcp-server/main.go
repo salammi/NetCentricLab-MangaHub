@@ -8,7 +8,6 @@ import (
 	"NetCentricLab-MangaHub/internal/auth"
 	"NetCentricLab-MangaHub/internal/manga"
 	"NetCentricLab-MangaHub/internal/tcp"
-	"NetCentricLab-MangaHub/internal/udp"
 	"NetCentricLab-MangaHub/pkg/database"
 
 	"github.com/gin-gonic/gin"
@@ -24,12 +23,10 @@ func main() {
 	log.Println("Initializing Database Connection...")
 	database.InitDB("data.db")
 
-	// Initialize and start network servers concurrently
+	// Initialize the TCP Sync Server
 	tcpServer := tcp.NewServer("9090")
+	// Start the TCP Server concurrently in the background
 	go tcpServer.Start()
-
-	udpServer := udp.NewServer("9091")
-	go udpServer.Start()
 
 	server := &APIServer{
 		Router:    gin.Default(),
@@ -37,6 +34,7 @@ func main() {
 		JWTSecret: "super-secret-manga-key-for-academic-purposes-only",
 	}
 
+	// Public Routes
 	authGroup := server.Router.Group("/auth")
 	{
 		authGroup.POST("/register", auth.Register(server.Database))
@@ -46,15 +44,13 @@ func main() {
 	server.Router.GET("/manga", manga.SearchManga(server.Database))
 	server.Router.GET("/manga/:id", manga.GetManga(server.Database))
 
+	// Protected User Routes (Requires JWT)
 	protected := server.Router.Group("/users")
 	protected.Use(auth.AuthMiddleware(server.JWTSecret))
 	{
 		protected.POST("/library", manga.AddToLibrary(server.Database))
+		// New Integrated Endpoint
 		protected.PUT("/progress", manga.UpdateProgress(server.Database, tcpServer))
-		// Add this GET route is used to view progress!
-		protected.GET("/library", manga.GetLibrary(server.Database))
-		// Integrated Endpoint for UDP Notifications
-		protected.POST("/notify", manga.TriggerNotification(udpServer))
 	}
 
 	log.Println("Starting HTTP API Server on port 8080...")
