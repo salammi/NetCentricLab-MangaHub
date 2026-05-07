@@ -14,6 +14,7 @@ CREATE TABLE manga (
     status TEXT,
     total_chapters INTEGER,
     description TEXT
+    cover_url TEXT
 );
 
 CREATE TABLE user_progress (

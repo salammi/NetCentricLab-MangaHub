@@ -49,7 +49,7 @@ func main() {
 	protected.Use(auth.AuthMiddleware(server.JWTSecret))
 	{
 		protected.POST("/library", manga.AddToLibrary(server.Database))
-		// New Integrated Endpoint for Progress Updates
+		// New Integrated Endpoint
 		protected.PUT("/progress", manga.UpdateProgress(server.Database, tcpServer))
 	}
 
