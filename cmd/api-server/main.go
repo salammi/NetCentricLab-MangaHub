@@ -51,7 +51,9 @@ func main() {
 	{
 		protected.POST("/library", manga.AddToLibrary(server.Database))
 		protected.PUT("/progress", manga.UpdateProgress(server.Database, tcpServer))
-		// New Integrated Endpoint for UDP Notifications
+		// Add this GET route is used to view progress!
+		protected.GET("/library", manga.GetLibrary(server.Database))
+		// Integrated Endpoint for UDP Notifications
 		protected.POST("/notify", manga.TriggerNotification(udpServer))
 	}
 
