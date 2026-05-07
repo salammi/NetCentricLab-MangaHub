@@ -8,6 +8,7 @@ import (
 	"NetCentricLab-MangaHub/internal/auth"
 	"NetCentricLab-MangaHub/internal/manga"
 	"NetCentricLab-MangaHub/internal/tcp"
+	"NetCentricLab-MangaHub/internal/udp"
 	"NetCentricLab-MangaHub/pkg/database"
 
 	"github.com/gin-gonic/gin"
@@ -23,10 +24,12 @@ func main() {
 	log.Println("Initializing Database Connection...")
 	database.InitDB("data.db")
 
-	// Initialize the TCP Sync Server
+	// Initialize and start network servers concurrently
 	tcpServer := tcp.NewServer("9090")
-	// Start the TCP Server concurrently in the background
 	go tcpServer.Start()
+
+	udpServer := udp.NewServer("9091")
+	go udpServer.Start()
 
 	server := &APIServer{
 		Router:    gin.Default(),
@@ -51,6 +54,8 @@ func main() {
 		protected.POST("/library", manga.AddToLibrary(server.Database))
 		// New Integrated Endpoint for Progress Updates
 		protected.PUT("/progress", manga.UpdateProgress(server.Database, tcpServer))
+		// New Integrated Endpoint for UDP Notifications
+		protected.POST("/notify", manga.TriggerNotification(udpServer))
 	}
 
 	log.Println("Starting HTTP API Server on port 8080...")

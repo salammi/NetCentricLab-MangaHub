@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"NetCentricLab-MangaHub/internal/tcp"
+	"NetCentricLab-MangaHub/internal/udp"
 	"NetCentricLab-MangaHub/pkg/models"
 
 	"github.com/gin-gonic/gin"
@@ -162,6 +163,37 @@ func UpdateProgress(db *sql.DB, tcpServer *tcp.ProgressSyncServer) gin.HandlerFu
 			"message":  "Progress updated successfully and broadcasted",
 			"manga_id": req.MangaID,
 			"chapter":  req.Chapter,
+		})
+	}
+}
+
+// NotificationRequest maps to the expected payload for chapter releases
+type NotificationRequest struct {
+	MangaID string `json:"manga_id" binding:"required"`
+	Message string `json:"message" binding:"required"`
+}
+
+// TriggerNotification handles POST /users/notify and triggers UDP broadcasts
+func TriggerNotification(udpServer *udp.NotificationServer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req NotificationRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+			return
+		}
+
+		// UC-010: Send Chapter Release Notification
+		if udpServer != nil {
+			udpServer.Broadcast(udp.Notification{
+				Type:      "new_chapter",
+				MangaID:   req.MangaID,
+				Message:   req.Message,
+				Timestamp: time.Now().Unix(),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Chapter release notification broadcasted successfully",
 		})
 	}
 }
