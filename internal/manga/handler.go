@@ -238,6 +238,7 @@ func TriggerNotification(udpServer *udp.NotificationServer) gin.HandlerFunc {
 }
 
 // GetLibrary handles GET /users/library to fetch reading progress
+// GetLibrary handles GET /users/library to fetch reading progress
 func GetLibrary(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userIDRaw, exists := c.Get("user_id")
@@ -247,12 +248,18 @@ func GetLibrary(db *sql.DB) gin.HandlerFunc {
 		}
 		userID := userIDRaw.(string)
 
-		// Query to join progress with manga details
+		// 1. Fetch the username from the database
+		var username string
+		err := db.QueryRow("SELECT username FROM users WHERE id = ?", userID).Scan(&username)
+		if err != nil {
+			username = "unknown_user"
+		}
+
+		// 2. Query user progress
 		rows, err := db.Query(`
-			SELECT m.id, m.title, up.current_chapter, up.status, up.updated_at
-			FROM user_progress up
-			JOIN manga m ON up.manga_id = m.id
-			WHERE up.user_id = ?`, userID)
+			SELECT manga_id, current_chapter, status, updated_at
+			FROM user_progress 
+			WHERE user_id = ?`, userID)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error fetching library"})
@@ -260,29 +267,46 @@ func GetLibrary(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var library []map[string]interface{}
+		// 3. Initialize empty slices so they output as [] in JSON instead of null
+		reading := make([]map[string]interface{}, 0)
+		completed := make([]map[string]interface{}, 0)
+		planToRead := make([]map[string]interface{}, 0)
+
 		for rows.Next() {
-			var id, title, status, updatedAt string
+			var mangaID, status, updatedAt string
 			var chapter int
-			if err := rows.Scan(&id, &title, &chapter, &status, &updatedAt); err != nil {
+			if err := rows.Scan(&mangaID, &chapter, &status, &updatedAt); err != nil {
 				continue
 			}
-			library = append(library, map[string]interface{}{
-				"manga_id":        id,
-				"title":           title,
+
+			// Format exact data structure required by spec
+			entry := map[string]interface{}{
+				"manga_id":        mangaID,
 				"current_chapter": chapter,
 				"status":          status,
 				"last_updated":    updatedAt,
-			})
+			}
+
+			// 4. Categorize based on the status string
+			switch status {
+			case "reading":
+				reading = append(reading, entry)
+			case "completed":
+				completed = append(completed, entry)
+			case "plan-to-read":
+				planToRead = append(planToRead, entry)
+			}
 		}
 
-		if library == nil {
-			library = []map[string]interface{}{}
-		}
-
+		// 5. Output the exact User Data Management JSON format
 		c.JSON(http.StatusOK, gin.H{
-			"user_id": userID,
-			"library": library,
+			"user_id":  userID,
+			"username": username,
+			"reading_lists": gin.H{
+				"reading":      reading,
+				"completed":    completed,
+				"plan_to_read": planToRead,
+			},
 		})
 	}
 }
