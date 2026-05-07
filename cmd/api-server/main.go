@@ -37,7 +37,6 @@ func main() {
 		JWTSecret: "super-secret-manga-key-for-academic-purposes-only",
 	}
 
-	// Public Routes
 	authGroup := server.Router.Group("/auth")
 	{
 		authGroup.POST("/register", auth.Register(server.Database))
@@ -47,12 +46,10 @@ func main() {
 	server.Router.GET("/manga", manga.SearchManga(server.Database))
 	server.Router.GET("/manga/:id", manga.GetManga(server.Database))
 
-	// Protected User Routes (Requires JWT)
 	protected := server.Router.Group("/users")
 	protected.Use(auth.AuthMiddleware(server.JWTSecret))
 	{
 		protected.POST("/library", manga.AddToLibrary(server.Database))
-		// New Integrated Endpoint for Progress Updates
 		protected.PUT("/progress", manga.UpdateProgress(server.Database, tcpServer))
 		// New Integrated Endpoint for UDP Notifications
 		protected.POST("/notify", manga.TriggerNotification(udpServer))
