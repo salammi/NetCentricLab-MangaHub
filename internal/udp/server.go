@@ -7,17 +7,17 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
-// NotificationServer matches the exact struct required by the project spec
 type NotificationServer struct {
 	Port    string
 	Clients []net.UDPAddr
 	mutex   sync.RWMutex
 	conn    *net.UDPConn
+    quit    chan struct{}
 }
 
-// Notification matches the exact struct required by the project spec
 type Notification struct {
 	Type      string `json:"type"`
 	MangaID   string `json:"manga_id"`
@@ -29,6 +29,7 @@ func NewServer(port string) *NotificationServer {
 	return &NotificationServer{
 		Port:    port,
 		Clients: make([]net.UDPAddr, 0),
+        quit:    make(chan struct{}),
 	}
 }
 
@@ -43,24 +44,33 @@ func (s *NotificationServer) Start() {
 		log.Fatalf("Failed to start UDP server on port %s: %v", s.Port, err)
 	}
 	s.conn = conn
-	defer conn.Close()
 
 	log.Printf("UDP Notification Server listening on udp://localhost:%s...", s.Port)
+    go s.listen()
+}
 
+func (s *NotificationServer) listen() {
 	buffer := make([]byte, 1024)
 	for {
-		// Connectionless listening: Wait for any packet from any address
-		n, clientAddr, err := conn.ReadFromUDP(buffer)
-		if err != nil {
-			continue
-		}
+        select {
+        case <-s.quit:
+            return
+        default:
+            n, clientAddr, err := s.conn.ReadFromUDP(buffer)
+            if err != nil {
+                if strings.Contains(err.Error(), "use of closed network connection") {
+                    break // Stop looping if connection is closed
+                }
+                continue
+            }
 
-		msg := strings.TrimSpace(string(buffer[:n]))
-
-		// UC-009: Register for UDP Notifications
-		if msg == "subscribe" {
-			s.registerClient(*clientAddr)
-		}
+            msg := strings.TrimSpace(string(buffer[:n]))
+            if msg == "subscribe" || strings.Contains(msg, "subscribe") {
+                s.registerClient(*clientAddr)
+            } else if msg == "unsubscribe" || strings.Contains(msg, "unsubscribe") {
+                s.unregisterClient(*clientAddr)
+            }
+        }
 	}
 }
 
@@ -68,28 +78,43 @@ func (s *NotificationServer) registerClient(addr net.UDPAddr) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Prevent duplicate registrations
 	for _, client := range s.Clients {
 		if client.String() == addr.String() {
 			return
 		}
 	}
-
 	s.Clients = append(s.Clients, addr)
 	log.Printf("✓ New UDP client registered for notifications: %s", addr.String())
-
-	// Send confirmation packet back to the client
-	s.conn.WriteToUDP([]byte("Successfully subscribed to chapter notifications!\n"), &addr)
+	s.conn.WriteToUDP([]byte(`{"status":"subscribed"}`+"\n"), &addr)
 }
 
-// UC-010: Send Chapter Release Notification
-func (s *NotificationServer) Broadcast(notification Notification) {
+func (s *NotificationServer) unregisterClient(addr net.UDPAddr) {
+    s.mutex.Lock()
+    defer s.mutex.Unlock()
+
+    for i, client := range s.Clients {
+        if client.String() == addr.String() {
+            s.Clients = append(s.Clients[:i], s.Clients[i+1:]...)
+            log.Printf("✓ UDP client unregistered: %s", addr.String())
+            return
+        }
+    }
+}
+
+func (s *NotificationServer) Broadcast(mangaID string, message string) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	if s.conn == nil || len(s.Clients) == 0 {
-		return // No one to notify
+		return
 	}
+
+    notification := Notification{
+        Type: "new_chapter",
+        MangaID: mangaID,
+        Message: message,
+        Timestamp: time.Now().Unix(),
+    }
 
 	data, err := json.Marshal(notification)
 	if err != nil {
@@ -97,9 +122,18 @@ func (s *NotificationServer) Broadcast(notification Notification) {
 	}
 	data = append(data, '\n')
 
-	// Fire out the notification to every registered IP address
 	for _, client := range s.Clients {
-		s.conn.WriteToUDP(data, &client)
+		_, err := s.conn.WriteToUDP(data, &client)
+        if err != nil {
+            log.Printf("Failed to broadcast to %s: %v", client.String(), err)
+        }
 	}
 	log.Printf("Broadcasted chapter notification to %d UDP clients", len(s.Clients))
+}
+
+func (s *NotificationServer) Stop() {
+    close(s.quit)
+    if s.conn != nil {
+        s.conn.Close()
+    }
 }

@@ -1,0 +1,14 @@
+syntax = "proto3";
+package grpc;
+option go_package = "./internal/grpc";
+
+service MangaService {
+    rpc GetManga(GetMangaRequest) returns (MangaResponse);
+}
+message GetMangaRequest { string id = 1; }
+message MangaResponse {
+    string id = 1;
+    string title = 2;
+    string author = 3;
+    int32 total_chapters = 4;
+}

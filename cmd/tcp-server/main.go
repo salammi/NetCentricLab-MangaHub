@@ -1,60 +1,86 @@
-// cmd/api-server/main.go
-package main
+// internal/tcp/server.go
+package tcp
 
 import (
-	"database/sql"
+	"encoding/json"
 	"log"
-
-	"NetCentricLab-MangaHub/internal/auth"
-	"NetCentricLab-MangaHub/internal/manga"
-	"NetCentricLab-MangaHub/internal/tcp"
-	"NetCentricLab-MangaHub/pkg/database"
-
-	"github.com/gin-gonic/gin"
+	"net"
+	"sync"
 )
 
-type APIServer struct {
-	Router    *gin.Engine
-	Database  *sql.DB
-	JWTSecret string
+type ProgressSyncServer struct {
+	port        string
+	Connections map[string]net.Conn
+	mutex       sync.Mutex
 }
 
-func main() {
-	log.Println("Initializing Database Connection...")
-	database.InitDB("data.db")
+// Renamed to NewTCPServer to match standard conventions
+func NewTCPServer(port string) *ProgressSyncServer {
+	return &ProgressSyncServer{
+		port:        port,
+		Connections: make(map[string]net.Conn),
+	}
+}
 
-	// Initialize the TCP Sync Server
-	tcpServer := tcp.NewServer("9090")
-	// Start the TCP Server concurrently in the background
-	go tcpServer.Start()
+func (s *ProgressSyncServer) Start() {
+	lis, err := net.Listen("tcp", ":"+s.port)
+	if err != nil {
+		log.Fatalf("Failed to start TCP server: %v", err)
+	}
+	defer lis.Close()
+	
+	log.Printf("📡 TCP Sync Server listening on :%s", s.port)
 
-	server := &APIServer{
-		Router:    gin.Default(),
-		Database:  database.DB,
-		JWTSecret: "super-secret-manga-key-for-academic-purposes-only",
+	for {
+		conn, err := lis.Accept()
+		if err != nil {
+			log.Println("TCP Accept Error:", err)
+			continue
+		}
+		// Handle each connection in a new goroutine
+		go s.handleConnection(conn)
+	}
+}
+
+func (s *ProgressSyncServer) handleConnection(conn net.Conn) {
+	addr := conn.RemoteAddr().String()
+	
+	s.mutex.Lock()
+	s.Connections[addr] = conn // Save connection to keep it alive
+	s.mutex.Unlock()
+
+	log.Printf("New TCP client connected: %s", addr)
+
+	// Listen for disconnects
+	buffer := make([]byte, 1024)
+	for {
+		_, err := conn.Read(buffer)
+		if err != nil {
+			break // Client disconnected
+		}
 	}
 
-	// Public Routes
-	authGroup := server.Router.Group("/auth")
-	{
-		authGroup.POST("/register", auth.Register(server.Database))
-		authGroup.POST("/login", auth.Login(server.Database, server.JWTSecret))
-	}
+	s.mutex.Lock()
+	delete(s.Connections, addr)
+	s.mutex.Unlock()
+	conn.Close()
+	log.Printf("TCP client disconnected: %s", addr)
+}
 
-	server.Router.GET("/manga", manga.SearchManga(server.Database))
-	server.Router.GET("/manga/:id", manga.GetManga(server.Database))
-
-	// Protected User Routes (Requires JWT)
-	protected := server.Router.Group("/users")
-	protected.Use(auth.AuthMiddleware(server.JWTSecret))
-	{
-		protected.POST("/library", manga.AddToLibrary(server.Database))
-		// New Integrated Endpoint
-		protected.PUT("/progress", manga.UpdateProgress(server.Database, tcpServer))
-	}
-
-	log.Println("Starting HTTP API Server on port 8080...")
-	if err := server.Router.Run(":8080"); err != nil {
-		log.Fatalf("Failed to start HTTP server: %v", err)
+// Broadcast sends progress updates to all connected TCP clients
+func (s *ProgressSyncServer) Broadcast(data interface{}) {
+	msg, _ := json.Marshal(data)
+	msg = append(msg, '\n') // Add newline so bufio.Scanner can read it
+	
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	
+	for addr, conn := range s.Connections {
+		_, err := conn.Write(msg)
+		if err != nil {
+			log.Printf("Failed to broadcast to %s, dropping connection", addr)
+			conn.Close()
+			delete(s.Connections, addr)
+		}
 	}
 }
