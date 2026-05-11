@@ -14,10 +14,6 @@
 - Create a working system that demonstrates network programming competency within academic constraints
 
 ### Running Test Instruction
-# Week 9 — End-to-End Integration Test
-
-A full walkthrough for verifying HTTP, TCP, UDP, WebSocket, and gRPC protocols working together against a shared database.
-
 ---
 
 ## Prerequisites
