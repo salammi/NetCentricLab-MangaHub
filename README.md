@@ -5,7 +5,7 @@
 | Nguyen Danh Huy  | ITITIU22071 |
 | Nguyen Minh Khoi | ITITIU23013 |
 
-### 1. Objectives
+### Objectives
 
 - Allow students to gain practical experience of network application development using Go with realistic scope
 - Experience all five required communication protocols (TCP, UDP, HTTP, gRPC, WebSocket) through hands-on implementation
