@@ -124,7 +124,13 @@ In **Terminal 4** (the active `wscat` session), type the following message and p
 Confirm the gRPC service is running and reading from the same database as the HTTP server.
 
 **Terminal 6**
+Start the grpc server
+```bash
+go run cmd/grpc-server/main.go
+```
 
+**Terminal 7**
+test the grpc server
 ```bash
 go run cmd/test_grpc/main.go
 ```
